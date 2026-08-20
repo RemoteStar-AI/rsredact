@@ -1,4 +1,5 @@
 import type { CustomTarget, ResolvedTarget, TargetInput } from './types.js';
+import { URL_TEXT_PATTERNS } from './detect/urls.js';
 
 /**
  * Patterns are deliberately broad. A false positive costs a black box over a
@@ -8,8 +9,6 @@ const EMAIL = /[A-Z0-9._%+-]+\s?@\s?[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 
 /** International, US, Indian, and UK-ish shapes, 7-15 digits with separators. */
 const PHONE = /(?:\+\d{1,3}[\s.-]?)?(?:\(\d{1,4}\)[\s.-]?)?\d{2,5}(?:[\s.-]?\d{2,5}){1,4}\b/g;
-
-const URL = /\b(?:https?:\/\/|www\.)[^\s<>"')]+/gi;
 
 /**
  * Known profile and link-aggregator hosts. An aggregator is the worst single
@@ -54,7 +53,9 @@ const BUILTINS: Record<string, CustomTarget> = {
   url: {
     id: 'url',
     description: 'Any URL that could identify the candidate.',
-    patterns: [URL],
+    // Covers full URLs, bare domains with a path, and bare domains with a
+    // known top-level domain, all as visible text.
+    patterns: URL_TEXT_PATTERNS,
   },
   photo: {
     id: 'photo',

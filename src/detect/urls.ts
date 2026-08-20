@@ -1,12 +1,10 @@
-import type { Detection, Page } from '../types.js';
-import { buildLines, unionBox, wordsInRange } from './lines.js';
-
 /**
- * Finds URLs written as visible text, whether or not anything links to them.
+ * Patterns for URLs written out as visible text.
  *
  * A CV writes web addresses three ways: as a real hyperlink, as a full URL in
  * the text, and as a bare domain with no scheme ("github.com/someone"). Only
- * the first is an annotation, so the other two need matching on the text.
+ * the first is an annotation; these patterns cover the other two, which are
+ * identifying content in their own right because the reader can just type them.
  */
 
 /** With a scheme or a www prefix there is no ambiguity. */
@@ -65,37 +63,5 @@ const BARE_DOMAIN = new RegExp(
   'gi',
 );
 
-const PATTERNS = [EXPLICIT, WITH_PATH, BARE_DOMAIN];
-
-export function detectVisibleUrls(page: Page): Detection[] {
-  const lines = buildLines(page);
-  const detections: Detection[] = [];
-
-  for (const line of lines) {
-    for (const pattern of PATTERNS) {
-      const regex = new RegExp(pattern.source, pattern.flags);
-      for (const match of line.text.matchAll(regex)) {
-        const raw = match[0];
-        if (!raw || match.index === undefined) continue;
-
-        // Trailing sentence punctuation is not part of the address.
-        const trimmed = raw.replace(/[.,;:)\]]+$/, '');
-        if (trimmed.length < 4) continue;
-
-        const words = wordsInRange(line, match.index, match.index + trimmed.length);
-        if (words.length === 0) continue;
-
-        detections.push({
-          page: page.index,
-          target: 'url',
-          box: unionBox(words.map((w) => w.box)),
-          text: trimmed,
-          confidence: 1,
-          source: 'pattern',
-          wordIds: words.map((w) => w.id),
-        });
-      }
-    }
-  }
-  return detections;
-}
+/** Ordered broadest-first. Overlapping matches merge downstream. */
+export const URL_TEXT_PATTERNS = [EXPLICIT, WITH_PATH, BARE_DOMAIN];

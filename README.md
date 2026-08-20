@@ -37,11 +37,29 @@ Three things, because each one is a way redaction usually fails.
 
 **The text is gone, not hidden.** Pages are rendered to pixels, the boxes are painted, and the PDF is rebuilt from those images. Nothing survives but the pixels you can see. `getTextContent()` on the output returns zero items.
 
-**Links are gone, all of them, by default.** A CV's hyperlinks are almost always the candidate's own, the anchor text is usually something uninformative like "Live Link", and no list of known hosts is ever complete. So every hyperlink and every URL written as visible text is redacted regardless of which targets you asked for. Clickable annotations never survive in any mode, since the output is a fresh document. Set `links: 'matching'` to redact only links matching a requested target, or `links: 'none'` to leave the text alone.
+**Every link is dead, and that is not an option.** No annotation survives into the output, so nothing is clickable and no URL is recoverable, in every mode and for every setting. Whether the *visible text* of a link is also hidden is a separate question, and the answer is usually no. See below.
 
 **The metadata is cleared.** A CV PDF very often carries the candidate's name in its Author field and their filename in Title. Both are emptied.
 
 What that costs you: the output is raster, so it is larger than the input (409 KB against 109 KB on a one page resume) and no longer searchable. That is the trade, and it is not negotiable if the goal is that nobody can recover the name.
+
+## Dead links and hidden links are different things
+
+These are two separate axes, and conflating them was the first thing we got wrong.
+
+**Dead** means the link no longer goes anywhere. That is unconditional. The output is rebuilt from rendered pages, so link annotations, form fields, and embedded actions do not exist in it. There is no option to turn this off and no mode in which a link survives.
+
+**Hidden** means the reader cannot even read the words that used to be a link. That is a content decision, not a security one, and it defaults to off.
+
+The reason is that hiding link text mostly destroys information for no privacy gain. A CV links an employer's name to the employer's site, a certification like "CKA" to its badge, and a project title to its repository. Once the link is dead, the destination is gone; what is left on the page is the word "CloudSEK" or "CKA", which identifies nobody. Blacking those out costs the reviewer real signal and buys nothing.
+
+| `linkText` | Link is dead | Link text readable | Use when |
+|---|---|---|---|
+| `keep` (default) | yes | yes | Normal blind hiring. Employer names, certifications, and project titles stay readable. |
+| `redact-identifying` | yes | hidden when its destination matches a requested target, readable otherwise | You want a link reading `github.com/someone` gone but an employer's site left alone. |
+| `redact-all` | yes | no | The output must show no trace that a link was ever there. |
+
+Separately from all of this, a URL written out as **visible text** is identifying content in its own right, because a reader can simply type it. That is handled by the `url` target (any URL) and the `social` target (known profile hosts), not by `linkText`. Ask for `url` and `github.com/someone` written in the body gets redacted whether or not anything linked to it.
 
 ## Targets
 
@@ -82,7 +100,7 @@ Add `patterns: [/.../ ]` and the regexes run before any model call. Add `visualO
 | `targets` | required | What to look for |
 | `provider` | none | Omit to run pattern and link detection only |
 | `mode` | `auto` | `auto`, `text`, `vision`, `patterns-only` |
-| `links` | `all` | `all`, `matching`, `none` |
+| `linkText` | `keep` | `keep`, `redact-identifying`, `redact-all` |
 | `style` | `box` | `box`, `label`, `blur`, `pixelate` |
 | `dpi` | `150` | Render resolution |
 | `padding` | `2` | Pixels added around every box |
@@ -138,7 +156,9 @@ A grid is the obvious way to ask a model where something is, and it is worse tha
 
 PDFs keep hyperlinks in an annotation layer beside the text, not in it. Text extractors read the text and leave the annotations behind, which is why most PDF-to-text tools lose your URLs. It is also a leak: a CV that renders the word "Portfolio" over `https://janesmith.com` gives away the candidate in a layer that text extraction never sees.
 
-rsredact reads the annotations for their rects, which arrive in the same coordinate space as the text. It also shows the model each link as `visible text -> destination`, so a label like "Linktree" can be judged on what it points at rather than on how it reads.
+rsredact reads the annotations for their rects, which arrive in the same coordinate space as the text. Rebuilding the output from rendered pages is what kills them.
+
+It also shows the model each link as `visible text -> destination`. That is not so the model can hide anything that happens to be a link, which was our first mistake here. It is so a bare label standing in for the candidate's own page, something like "Portfolio" or "Profile", can be judged on where it goes rather than on how it reads, while an employer name or a certification linking somewhere useful is left alone.
 
 ## Numbers
 

@@ -10,7 +10,6 @@ import { resolveTargets } from './targets.js';
 import { DEFAULT_DPI, loadDocument } from './document/load.js';
 import { detectPatterns } from './detect/patterns.js';
 import { detectLinks } from './detect/links.js';
-import { detectVisibleUrls } from './detect/urls.js';
 import { detectWithText } from './detect/llm-text.js';
 import { detectWithVision } from './detect/llm-vision.js';
 import { mergeDetections, padDetections } from './detect/merge.js';
@@ -43,13 +42,7 @@ export async function redact(input: Buffer, options: RedactOptions): Promise<Red
     });
     detections.push(...detectPatterns(page, targets));
 
-    const linkMode = options.links ?? 'all';
-    if (linkMode !== 'none') {
-      detections.push(...detectLinks(page, targets, linkMode));
-    }
-    if (linkMode === 'all') {
-      detections.push(...detectVisibleUrls(page));
-    }
+    detections.push(...detectLinks(page, targets, options.linkText ?? 'keep'));
 
     const plan = planPage(page.words.length > 0, targets, options.mode ?? 'auto');
 
@@ -200,7 +193,7 @@ function buildAudit(input: {
   return {
     targets: input.targets.map((t) => t.id),
     mode: input.options.mode ?? 'auto',
-    links: input.options.links ?? 'all',
+    linkText: input.options.linkText ?? 'keep',
     provider: input.options.provider?.name,
     pages: input.document.pages.length,
     dpi: input.options.dpi ?? DEFAULT_DPI,

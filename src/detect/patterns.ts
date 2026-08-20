@@ -1,5 +1,6 @@
 import type { Detection, Page, ResolvedTarget } from '../types.js';
-import { buildLines, unionBox, wordsInRange } from './lines.js';
+import { buildLines, unionBox, wordsInRange, type LineText } from './lines.js';
+import { URL_TEXT_PATTERNS } from './urls.js';
 
 /**
  * Regexes alone are too eager for some targets. A phone pattern will happily
@@ -26,9 +27,13 @@ const GUARDS: Record<string, (match: string, line: string, index: number) => boo
   dob: (match) => match.trim().length > 3,
 };
 
+/** Targets whose patterns must never fire on characters inside a URL. */
+const NOT_INSIDE_URLS = new Set(['phone', 'dob']);
+
 export function detectPatterns(page: Page, targets: ResolvedTarget[]): Detection[] {
   const lines = buildLines(page);
   const detections: Detection[] = [];
+  const urlRanges = new Map<LineText, [number, number][]>();
 
   for (const target of targets) {
     if (target.patterns.length === 0) continue;
@@ -43,6 +48,18 @@ export function detectPatterns(page: Page, targets: ResolvedTarget[]): Detection
 
           const guard = GUARDS[target.id];
           if (guard && !guard(raw, line.text, index)) continue;
+
+          // A URL is full of digits that look like phone numbers: LinkedIn
+          // activity ids and Credly badge UUIDs both match. The URL itself is
+          // handled by the url target, so a phone match inside one is noise
+          // that would also mislabel the detection in the audit record.
+          if (NOT_INSIDE_URLS.has(target.id)) {
+            if (!urlRanges.has(line)) urlRanges.set(line, findUrlRanges(line.text));
+            const inUrl = urlRanges
+              .get(line)!
+              .some(([start, end]) => index < end && index + raw.length > start);
+            if (inUrl) continue;
+          }
 
           // Trim whitespace the pattern may have swallowed at the edges.
           const leading = raw.length - raw.trimStart().length;
@@ -66,6 +83,18 @@ export function detectPatterns(page: Page, targets: ResolvedTarget[]): Detection
     }
   }
   return detections;
+}
+
+function findUrlRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  for (const pattern of URL_TEXT_PATTERNS) {
+    const regex = new RegExp(pattern.source, ensureGlobal(pattern.flags));
+    for (const match of text.matchAll(regex)) {
+      if (match.index === undefined) continue;
+      ranges.push([match.index, match.index + match[0].length]);
+    }
+  }
+  return ranges;
 }
 
 function ensureGlobal(flags: string): string {

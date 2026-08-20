@@ -29,7 +29,7 @@ Rules:
 - \`quote\` must be the identifying text only. For "Email: jane@example.com" quote the address, not the label.
 - If a name or address wraps across two lines, return one entry per line.
 - Skip anything already unidentifiable.
-- A hyperlink section may follow the page text. Anchor text like "Portfolio", "Linktree", or "Live Link" reveals nothing on its own, but if the URL behind it identifies the candidate (their username, their name, a personal site, a link aggregator), quote the visible anchor text so it gets covered.
+- A hyperlink section may follow the page text. Every link in the output is already dead, so a link is not by itself a reason to redact anything. Quote a link's visible text only when that text is itself identifying, or when it is a bare label like "Portfolio" or "Profile" standing in for the candidate's own page. Never quote it because of what it points at otherwise: an employer's name linking to the employer's site, a certification like "CKA" linking to a badge, and a project title linking to its repository are all content the reviewer needs.
 - Set confidence to 0.9 or above only when you are sure. Use 0.5-0.8 when the text is ambiguous.
 - Return an empty list if the page contains none of the targets.
 

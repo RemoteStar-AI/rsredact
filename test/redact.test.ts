@@ -9,7 +9,7 @@ import { buildSampleCv } from './fixture.js';
 const DPI = 150;
 const POINTS_PER_INCH = 72;
 
-test('patterns find the email, phone, and linked profile with no provider', async () => {
+test('patterns find the email and phone with no provider at all', async () => {
   const { bytes } = await buildSampleCv();
   const result = await redact(bytes, {
     targets: ['email', 'phone', 'social'],
@@ -21,21 +21,20 @@ test('patterns find the email, phone, and linked profile with no provider', asyn
   const targets = result.detections.map((d) => d.target).join(' ');
   assert.match(targets, /email/, 'email not detected');
   assert.match(targets, /phone/, 'phone not detected');
-  assert.match(targets, /social/, 'social link not detected');
 
-  const linked = result.detections.find((d) => d.source === 'link');
-  assert.ok(linked, 'the hyperlink behind "Portfolio" was not detected');
-  assert.match(linked.text ?? '', /linkedin\.com\/in\/priya-raghunathan/);
+  // The fixture links the word "Portfolio" to a LinkedIn profile. Under the
+  // default policy that word stays readable, because the link is dead and
+  // "Portfolio" identifies nobody.
+  assert.equal(
+    result.detections.filter((d) => d.text?.includes('linkedin')).length,
+    0,
+    'anchor text was redacted under the default link policy',
+  );
 });
 
 test('a date range in the experience section is not mistaken for a phone number', async () => {
   const { bytes } = await buildSampleCv();
-  // links: 'none' so this test sees only phone detections.
-  const result = await redact(bytes, {
-    targets: ['phone'],
-    mode: 'patterns-only',
-    links: 'none',
-  });
+  const result = await redact(bytes, { targets: ['phone'], mode: 'patterns-only' });
 
   for (const detection of result.detections) {
     assert.doesNotMatch(
@@ -151,12 +150,7 @@ test('an unlocatable quote is reported instead of silently dropped', async () =>
     { redactions: [{ line: 1, quote: 'Someone Not On This Page', target: 'name', confidence: 1 }] },
   ]);
 
-  const result = await redact(bytes, {
-    targets: ['name'],
-    mode: 'text',
-    provider,
-    links: 'none',
-  });
+  const result = await redact(bytes, { targets: ['name'], mode: 'text', provider });
   assert.equal(result.detections.length, 0);
   assert.ok(
     result.audit.warnings.some((w) => w.includes('could not locate quote')),
@@ -180,37 +174,78 @@ async function samplePixel(png: Buffer, x: number, y: number): Promise<number[]>
   return [data[0]!, data[1]!, data[2]!];
 }
 
-test('every hyperlink is redacted by default, even one no target matches', async () => {
+test('a link is dead but its text stays readable by default', async () => {
   const { bytes } = await buildSampleCv({
-    extraLine: 'Live Link',
-    extraLinkUrl: 'https://some-unknown-host.example/xyz',
+    extraLine: 'CloudSEK',
+    extraLinkUrl: 'https://cloudsek.com/',
   });
-  const result = await redact(bytes, { targets: ['name'], mode: 'patterns-only' });
+  const result = await redact(bytes, { targets: ['name', 'email'], mode: 'patterns-only' });
 
-  const link = result.detections.find((d) => d.text?.includes('some-unknown-host'));
-  assert.ok(link, 'a hyperlink that matches no target was left alone');
-  assert.equal(link.target, 'link');
+  assert.equal(
+    result.detections.filter((d) => d.text?.includes('cloudsek')).length,
+    0,
+    'an employer name was blacked out just for being a link',
+  );
+
+  // Dead is not optional: the annotation must be gone from the output.
+  const doc = await getDocument({ data: new Uint8Array(result.pdf!), isEvalSupported: false })
+    .promise;
+  try {
+    const annotations = await (await doc.getPage(1)).getAnnotations({ intent: 'display' });
+    assert.equal(annotations.length, 0, 'a clickable annotation survived');
+  } finally {
+    await doc.destroy();
+  }
 });
 
-test('links: "matching" leaves an unmatched hyperlink readable', async () => {
+test('linkText: "redact-all" hides the text of every link', async () => {
   const { bytes } = await buildSampleCv({
-    extraLine: 'Live Link',
-    extraLinkUrl: 'https://some-unknown-host.example/xyz',
+    extraLine: 'CloudSEK',
+    extraLinkUrl: 'https://cloudsek.com/',
   });
   const result = await redact(bytes, {
     targets: ['name'],
     mode: 'patterns-only',
-    links: 'matching',
+    linkText: 'redact-all',
   });
-  assert.equal(
-    result.detections.filter((d) => d.text?.includes('some-unknown-host')).length,
-    0,
+  assert.ok(
+    result.detections.some((d) => d.text?.includes('cloudsek')),
+    'redact-all left a link readable',
   );
 });
 
-test('a URL written as plain text with no hyperlink is redacted', async () => {
+test('linkText: "redact-identifying" hides a profile link but not an employer link', async () => {
+  const identifying = await buildSampleCv({
+    extraLine: 'Profile',
+    extraLinkUrl: 'https://github.com/someone',
+  });
+  const employer = await buildSampleCv({
+    extraLine: 'CloudSEK',
+    extraLinkUrl: 'https://cloudsek.com/',
+  });
+  const options = {
+    targets: ['social'] as const,
+    mode: 'patterns-only' as const,
+    linkText: 'redact-identifying' as const,
+  };
+
+  const a = await redact(identifying.bytes, { ...options, targets: ['social'] });
+  assert.ok(
+    a.detections.some((d) => d.text === 'https://github.com/someone'),
+    'a profile link was left readable',
+  );
+
+  const b = await redact(employer.bytes, { ...options, targets: ['social'] });
+  assert.equal(
+    b.detections.filter((d) => d.text === 'https://cloudsek.com/').length,
+    0,
+    'an employer link was hidden under redact-identifying',
+  );
+});
+
+test('the url target redacts a URL written as visible text', async () => {
   const { bytes } = await buildSampleCv({ extraLine: 'github.com/priya-r and ghstmail.space' });
-  const result = await redact(bytes, { targets: ['name'], mode: 'patterns-only' });
+  const result = await redact(bytes, { targets: ['url'], mode: 'patterns-only' });
 
   const texts = result.detections.map((d) => d.text ?? '').join(' ');
   assert.match(texts, /github\.com\/priya-r/, 'a bare domain with a path was missed');
@@ -221,7 +256,7 @@ test('technology names that look like domains are not redacted', async () => {
   const { bytes } = await buildSampleCv({
     extraLine: 'Node.js Next.js main.py docker-compose.yml 8.95 e.g.',
   });
-  const result = await redact(bytes, { targets: ['name'], mode: 'patterns-only' });
+  const result = await redact(bytes, { targets: ['url'], mode: 'patterns-only' });
 
   for (const detection of result.detections) {
     assert.doesNotMatch(
@@ -232,17 +267,22 @@ test('technology names that look like domains are not redacted', async () => {
   }
 });
 
-test('no clickable annotation survives in the output, whatever the link policy', async () => {
-  const { bytes } = await buildSampleCv();
-  for (const links of ['all', 'matching', 'none'] as const) {
-    const result = await redact(bytes, { targets: ['name'], mode: 'patterns-only', links });
-    const doc = await getDocument({ data: new Uint8Array(result.pdf!), isEvalSupported: false })
-      .promise;
-    try {
-      const annotations = await (await doc.getPage(1)).getAnnotations({ intent: 'display' });
-      assert.equal(annotations.length, 0, `links: "${links}" left a clickable annotation behind`);
-    } finally {
-      await doc.destroy();
-    }
+test('digits inside a URL are not mistaken for a phone number', async () => {
+  const { bytes } = await buildSampleCv({
+    extraLine:
+      'See linkedin.com/posts/activity-7405463989889175552-GXfn and credly.com/badges/4f7b0158-cf69-421b-8b60-691381eb1167',
+  });
+  const result = await redact(bytes, {
+    targets: ['phone'],
+    mode: 'patterns-only',
+  });
+
+  for (const detection of result.detections) {
+    assert.doesNotMatch(
+      detection.text ?? '',
+      /7405463989889175552|691381eb1167|4f7b0158/,
+      `labelled "${detection.text}" a phone number, but it is part of a URL`,
+    );
   }
 });
+

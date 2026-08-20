@@ -131,15 +131,26 @@ export interface RedactOptions {
   /** Drop detections below this confidence. Default 0.5. */
   minConfidence?: number;
   /**
-   * How hyperlinks are handled.
+   * Whether the *visible text* of a hyperlink is painted over.
    *
-   * 'all' (default) redacts every hyperlink and every URL written as visible
-   * text, regardless of which targets were requested. Clickable links never
-   * survive in any mode, because the output is rebuilt from rendered pages.
-   * 'matching' redacts only links whose URL matches a requested target.
-   * 'none' leaves link text alone.
+   * Every hyperlink is dead in every mode. That is not configurable: the output
+   * is rebuilt from rendered pages, so no annotation survives and nothing is
+   * clickable. This option is only about whether the reader can still read the
+   * words that used to be a link.
+   *
+   * 'keep' (default) leaves link text readable. A dead link's destination is
+   * already gone, and the visible words are usually content worth keeping: an
+   * employer name, a certification like "CKA", a project title.
+   * 'redact-identifying' also hides link text whose destination matches a
+   * requested target, so a link reading "github.com/someone" goes but an
+   * employer's site stays.
+   * 'redact-all' hides the visible text of every link. Use it when the output
+   * must show no trace that a link was ever there.
+   *
+   * Independently of this, a URL written out as visible text is identifying
+   * content, and is redacted whenever the 'url' or 'social' target is requested.
    */
-  links?: 'all' | 'matching' | 'none';
+  linkText?: 'keep' | 'redact-identifying' | 'redact-all';
   /** Run OCR when a page has no text layer. Requires tesseract.js. Default true. */
   ocr?: boolean;
   /** Language passed to tesseract. Default 'eng'. */
@@ -198,8 +209,8 @@ export interface RedactResult {
 export interface AuditRecord {
   targets: string[];
   mode: string;
-  /** Which link policy was applied. */
-  links: string;
+  /** Which link-text policy was applied. Links are always dead. */
+  linkText: string;
   provider?: string;
   pages: number;
   dpi: number;

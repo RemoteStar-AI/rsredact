@@ -2,26 +2,26 @@ import type { Detection, Page, ResolvedTarget } from '../types.js';
 import { unionBox } from './lines.js';
 
 /**
- * Redacts hyperlink annotations.
+ * Decides which hyperlinks should have their *visible text* painted over.
  *
- * In 'all' mode every link goes, whatever it points at. That is the default
- * because a CV's hyperlinks are almost always the candidate's own, a host
- * allowlist can never be complete, and the anchor text is usually something
- * uninformative like "Live Link" that no amount of text analysis would flag.
- * The cost is that a link to a framework's docs also goes, which is the right
- * trade for a blind-hiring pipeline.
+ * Every hyperlink is already dead by the time output is written, because the
+ * PDF is rebuilt from rendered pages and no annotation survives. So this is not
+ * about neutralising the link, it is only about whether the reader can still
+ * read the words. Usually they should: a dead link to an employer's site is
+ * just the employer's name, and a dead link behind "CKA" is just a
+ * certification. Hiding those destroys content for no privacy gain.
  *
- * In 'matching' mode only links whose URL matches a requested target are
- * redacted, which keeps unrelated links readable.
+ * 'keep'                nothing here redacts link text.
+ * 'redact-identifying'  hide it when the destination matches a requested target.
+ * 'redact-all'          hide it for every link.
  */
 export function detectLinks(
   page: Page,
   targets: ResolvedTarget[],
-  mode: 'all' | 'matching' = 'all',
+  policy: 'keep' | 'redact-identifying' | 'redact-all' = 'keep',
 ): Detection[] {
-  if (page.links.length === 0) return [];
+  if (policy === 'keep' || page.links.length === 0) return [];
   const urlTargets = targets.filter((t) => t.patterns.length > 0 && !t.visualOnly);
-  if (mode === 'matching' && urlTargets.length === 0) return [];
 
   const detections: Detection[] = [];
 
@@ -33,7 +33,7 @@ export function detectLinks(
         new RegExp(pattern.source, pattern.flags.replace('g', '')).test(link.url),
       ),
     );
-    if (!matched && mode === 'matching') continue;
+    if (!matched && policy === 'redact-identifying') continue;
 
     // The annotation rect is often padded well past the glyphs. When the words
     // underneath are known, use them instead.
