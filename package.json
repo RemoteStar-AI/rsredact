@@ -1,0 +1,74 @@
+{
+  "name": "@remotestar/rsredact",
+  "version": "0.1.0",
+  "description": "Resume redaction for blind hiring: finds personal identifiers on a CV and removes them, rather than covering them up",
+  "keywords": [
+    "redaction",
+    "resume",
+    "cv",
+    "pdf",
+    "pii",
+    "anonymisation",
+    "blind-hiring",
+    "gdpr"
+  ],
+  "license": "MIT",
+  "author": "RemoteStar AI",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RemoteStar-AI/rsredact.git"
+  },
+  "homepage": "https://github.com/RemoteStar-AI/rsredact#readme",
+  "bugs": {
+    "url": "https://github.com/RemoteStar-AI/rsredact/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./providers": "./dist/providers/index.js"
+  },
+  "files": [
+    "dist",
+    "assets/logo.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@napi-rs/canvas": "^0.1.66",
+    "pdf-lib": "^1.17.1",
+    "pdfjs-dist": "^4.10.38"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.30.0",
+    "openai": ">=4.0.0",
+    "tesseract.js": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "tesseract.js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
+    "@types/node": "^22.10.0",
+    "openai": "^7.5.0",
+    "typescript": "^5.7.2"
+  }
+}

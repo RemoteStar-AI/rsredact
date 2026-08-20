@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="rsredact">
+  <title>rsredact</title>
+  <rect width="128" height="128" rx="28" fill="#6D28D9"/>
+  <!-- Same page and folded corner as rsparse: these are sibling services. -->
+  <path d="M20 26a10 10 0 0 1 10-10h50l28 28v58a10 10 0 0 1-10 10H30a10 10 0 0 1-10-10Z" fill="#F4EFFF"/>
+  <path d="M80 16l28 28H90a10 10 0 0 1-10-10Z" fill="#2E1065"/>
+  <!-- Three bars of ink, uneven, the way a real redaction falls across a line. -->
+  <rect x="34" y="56" width="60" height="12" rx="2" fill="#2E1065"/>
+  <rect x="34" y="76" width="38" height="12" rx="2" fill="#2E1065"/>
+  <rect x="34" y="96" width="52" height="12" rx="2" fill="#2E1065"/>
+</svg>
