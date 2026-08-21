@@ -97,7 +97,7 @@ export async function redact(input: Buffer, options: RedactOptions): Promise<Red
   );
 
   options.onProgress?.({ stage: 'apply', totalPages: document.pages.length });
-  const painted = await paintPages(document, merged, options.style ?? 'box');
+  const painted = await paintPages(document, merged, options.style ?? 'blur');
   warnings.push(...painted.warnings);
 
   const output = options.output ?? 'pdf';

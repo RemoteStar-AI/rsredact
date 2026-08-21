@@ -8,9 +8,9 @@ It exists because drawing a black rectangle on a PDF redacts nothing. The text s
 
 [![ci](https://github.com/RemoteStar-AI/rsredact/actions/workflows/ci.yml/badge.svg)](https://github.com/RemoteStar-AI/rsredact/actions/workflows/ci.yml)
 
-<img src="assets/redaction-example.png" width="852" alt="One CV before and after redaction. The name, email, phone number, and a URL written in the body are painted out. The job title, the dates, and the achievement lines are untouched.">
+<img src="assets/redaction-example.png" width="852" alt="One CV before and after redaction. The name, email, phone number, and a URL written in the body are blurred into unreadable smudges. The job title, the dates, and the achievement lines are untouched.">
 
-The name, the contact block, and the URL written into the body are gone. The job title, the dates, and what the candidate actually did are untouched, which is the whole point. The word "Portfolio" is still readable, but the link under it no longer goes anywhere.
+The name, the contact block, and the URL written into the body are gone. That is the default style, `blur`, and it is not a smudge over live text: the characters were destroyed before anything was smoothed. The job title, the dates, and what the candidate actually did are untouched, which is the whole point. The word "Portfolio" is still readable, but the link under it no longer goes anywhere.
 
 What it does not do is make a CV anonymous. Blacking out the name and the contact block is the easy half. A distinctive project, an award, or a line like "cut the $10000 AWS Glue bill by 96%" is one search away from a name, and no target matches any of those. Read [Limitations](#limitations) before you decide this is enough.
 
@@ -59,10 +59,14 @@ Start with the run's own record.
 
 ```ts
 console.log(result.audit.detectionCounts);  // { name: 1, email: 1, phone: 1, 'social+url': 1 }
-console.log(result.audit.warnings);         // []
+console.log(result.audit.warnings);         // one entry: the default style leaks shape
 ```
 
-An empty `warnings` is not a clean bill of health by itself. In `patterns-only` mode, and in `text` mode when the only targets left are visual ones, every model target is skipped in silence and `warnings` stays empty. So read `detectionCounts` against the targets you actually asked for: a target you requested that is missing from the counts either found nothing or never ran, and those two look identical from here.
+Two things about `warnings` that will bite you if you assume otherwise.
+
+A default run is never empty. `blur` is the default style and it always warns, because a style that leaves the shape of the text visible should never be applied silently. So `warnings.length === 0` is not the test for "nothing went wrong". Either pass `style: 'box'`, which warns about nothing, or filter the style entry out before you look.
+
+And an empty `warnings` is still not a clean bill of health. In `patterns-only` mode, and in `text` mode when the only targets left are visual ones, every model target is skipped in silence. So read `detectionCounts` against the targets you actually asked for: a target you requested that is missing from the counts either found nothing or never ran, and those two look identical from here.
 
 `social+url` is not a typo. Two detectors landing on the same box merge into one detection carrying both names, so filter with `includes`, not `===`.
 
@@ -201,7 +205,7 @@ Add `patterns: [/.../ ]` and the regexes run before any model call. Add `visualO
 | `provider` | none | Omit to run pattern and link detection only |
 | `mode` | `auto` | `auto`, `text`, `vision`, `patterns-only` |
 | `linkText` | `keep` | `keep`, `redact-identifying`, `redact-all` |
-| `style` | `box` | `box`, `label`, `blur`, `pixelate` |
+| `style` | `blur` | `blur`, `box`, `label`, `pixelate` |
 | `dpi` | `150` | Render resolution |
 | `padding` | `2` | Pixels added around every box |
 | `minConfidence` | `0.5` | Drop detections below this |
@@ -212,7 +216,11 @@ Add `patterns: [/.../ ]` and the regexes run before any model call. Add `visualO
 | `rsparseUrl` | none | An [rsparse](https://github.com/RemoteStar-AI/rsparse) instance, for document context |
 | `onProgress` | none | Per stage callback |
 
-`blur` and `pixelate` both throw the detail away by downsampling the region before they smooth or block it, so the characters cannot be read back out of the output. What does survive is the *shape* of what was covered: how many words, how long each one was, and where the lines broke. That is enough to tell a short name from a long one, so `box` is still the right choice when the output leaves your control. Both emit a warning in `audit.warnings` saying exactly that.
+Every style destroys the text, because the page is rebuilt from pixels either way. What they differ on is how much they still tell a reader about what was taken.
+
+`blur` is the default because a blurred CV reads as a deliberate document rather than a censored one, and a reviewer can see that something was removed without being told. `pixelate` is the same operation drawn back with smoothing off. Both downsample the region to a twelfth of its size first, so the characters cannot be read back out of the output, but the *shape* survives: how many words, how long each one was, and where the lines broke. That is enough to tell a short name from a long one, and both emit a warning in `audit.warnings` saying so.
+
+`box` is the only style that leaves nothing. Pass it when the output goes anywhere you do not control, or when even the length of a name is more than you want to disclose. `label` is `box` with the target name printed on the fill, which is useful when a human needs to see that nothing was covered by accident.
 
 ### What throws and what warns
 
@@ -229,7 +237,7 @@ The rule is that anything which would make the output untrustworthy throws, and 
 | The model returns an unreadable grid reference | warns, that one detection is dropped |
 | A model target was asked for with no provider | warns, except in `patterns-only` |
 | A page has no text layer and neither OCR nor vision ran | warns, and that page comes back unredacted |
-| `style` is `blur` or `pixelate` | warns that the shape of the text is still visible |
+| `style` is `blur` or `pixelate` | warns that the shape of the text is still visible. `blur` is the default, so this fires unless you ask for `box` |
 
 All four error classes extend `RedactError` and carry a `code`.
 

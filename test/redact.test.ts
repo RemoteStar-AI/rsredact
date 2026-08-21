@@ -62,6 +62,9 @@ test('the name is located from an LLM quote and painted black', async () => {
     provider,
     dpi: DPI,
     output: 'both',
+    // Explicit, because the default is 'blur' and this test is about where the
+    // box landed rather than about which style painted it.
+    style: 'box',
   });
 
   const name = result.detections.find((d) => d.target === 'name');
@@ -84,6 +87,42 @@ test('the name is located from an LLM quote and painted black', async () => {
   // And the pixels there must actually be black.
   const centre = await samplePixel(result.images![0]!, name.box.x + name.box.width / 2, name.box.y + name.box.height / 2);
   assert.deepEqual(centre, [0, 0, 0], `expected black at the name, got ${centre.join(',')}`);
+});
+
+test('the default style is blur, and it says so in the warnings', async () => {
+  const { bytes } = await buildSampleCv();
+  const quote = { line: 1, quote: 'Priya Raghunathan', target: 'name', confidence: 0.97 };
+
+  const run = (style?: 'blur' | 'box') =>
+    redact(bytes, {
+      targets: ['name'],
+      mode: 'text',
+      provider: scriptedProvider([{ redactions: [quote] }]),
+      dpi: DPI,
+      output: 'images',
+      ...(style ? { style } : {}),
+    });
+
+  const [defaulted, blurred, boxed] = await Promise.all([run(), run('blur'), run('box')]);
+
+  assert.deepEqual(
+    defaulted.images![0],
+    blurred.images![0],
+    'the default did not paint the same pixels as style "blur"',
+  );
+  assert.notDeepEqual(
+    defaulted.images![0],
+    boxed.images![0],
+    'the default painted the same pixels as style "box"',
+  );
+
+  // A shape-leaking style must never be applied silently, default or not.
+  assert.equal(
+    defaulted.audit.warnings.filter((w) => w.includes('style "blur"')).length,
+    1,
+    `expected one style warning, got ${JSON.stringify(defaulted.audit.warnings)}`,
+  );
+  assert.equal(boxed.audit.warnings.length, 0, 'style "box" should warn about nothing');
 });
 
 test('the redacted PDF has no extractable text and no metadata', async () => {
