@@ -17,8 +17,10 @@ export async function paintPages(
   const warnings: string[] = [];
   if (style === 'blur' || style === 'pixelate') {
     warnings.push(
-      `style "${style}" obscures text but does not destroy it: blurred and pixelated text ` +
-        'can often be recovered. Use "box" or "label" when the output leaves your control.',
+      `style "${style}" throws the detail away by downsampling before it smooths, so the ` +
+        'characters themselves cannot be read back out of the output. What it does still ' +
+        'show is the shape of what was covered: how many words, how long they were, and ' +
+        'where the lines broke. Use "box" when none of that should be inferable.',
     );
   }
 
@@ -54,10 +56,10 @@ async function paintPage(page: Page, detections: Detection[], style: RedactionSt
         drawLabel(ctx, box, detection.target);
         break;
       case 'blur':
-        scramble(ctx, box, true);
+        blurBox(ctx, box);
         break;
       case 'pixelate':
-        scramble(ctx, box, false);
+        pixelate(ctx, box);
         break;
     }
   }
@@ -82,31 +84,104 @@ function drawLabel(ctx: SKRSContext2D, box: Box, target: string): void {
   ctx.fillText(text, box.x + box.width / 2, box.y + box.height / 2);
 }
 
+/** How much detail the downsample throws away before anything is smoothed. */
+const DETAIL_FACTOR = 12;
+
 /**
- * Downscales the region and draws it back at full size. With smoothing on that
- * reads as a blur; with smoothing off it reads as pixelation.
+ * Downscales the region and draws it back at full size with smoothing off, so
+ * the region becomes visible blocks.
  */
-function scramble(ctx: SKRSContext2D, box: Box, smooth: boolean): void {
-  const factor = 12;
-  const small = createCanvas(
-    Math.max(1, Math.floor(box.width / factor)),
-    Math.max(1, Math.floor(box.height / factor)),
+function pixelate(ctx: SKRSContext2D, box: Box): void {
+  const small = downsample(ctx, box, box);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(small as never, 0, 0, small.width, small.height, box.x, box.y, box.width, box.height);
+  ctx.imageSmoothingEnabled = true;
+}
+
+/**
+ * Frosts the region: the detail is thrown away by downsampling, then a real
+ * gaussian pass smooths what is left.
+ *
+ * The two steps do different jobs. The downsample is the one that matters,
+ * because at a twelfth of the original size there is no glyph left to sharpen
+ * back up. The blur is cosmetic, and it is the difference between something
+ * that looks deliberate and something that looks like a broken thumbnail.
+ *
+ * The blur reads a padded region rather than the box alone. Blurring the box on
+ * its own samples transparency past its edges, which leaves a pale halo just
+ * inside the border and makes the box look like a sticker.
+ */
+function blurBox(ctx: SKRSContext2D, box: Box): void {
+  // Tied to the height of what is being covered, so a page rendered at 300 dpi
+  // gets the same apparent softness as one at 150.
+  const radius = Math.max(3, Math.round(box.height * 0.32));
+  const pad = radius * 2;
+
+  const source = {
+    x: Math.max(0, box.x - pad),
+    y: Math.max(0, box.y - pad),
+    width: 0,
+    height: 0,
+  };
+  source.width = Math.min(ctx.canvas.width - source.x, box.width + pad * 2);
+  source.height = Math.min(ctx.canvas.height - source.y, box.height + pad * 2);
+  if (source.width <= 0 || source.height <= 0) return;
+
+  const coarse = downsample(ctx, source, source);
+  const frosted = createCanvas(source.width, source.height);
+  const frostedCtx = frosted.getContext('2d');
+  frostedCtx.drawImage(
+    coarse as never,
+    0,
+    0,
+    coarse.width,
+    coarse.height,
+    0,
+    0,
+    source.width,
+    source.height,
   );
-  const smallCtx = small.getContext('2d');
-  smallCtx.drawImage(
-    ctx.canvas as never,
+
+  const blurred = createCanvas(source.width, source.height);
+  const blurredCtx = blurred.getContext('2d');
+  blurredCtx.filter = `blur(${radius}px)`;
+  blurredCtx.drawImage(frosted as never, 0, 0);
+  blurredCtx.filter = 'none';
+
+  // Only the box is written back. The padding was scaffolding for the blur.
+  ctx.drawImage(
+    blurred as never,
+    box.x - source.x,
+    box.y - source.y,
+    box.width,
+    box.height,
     box.x,
     box.y,
     box.width,
     box.height,
-    0,
-    0,
-    small.width,
-    small.height,
   );
-  ctx.imageSmoothingEnabled = smooth;
-  ctx.drawImage(small as never, 0, 0, small.width, small.height, box.x, box.y, box.width, box.height);
-  ctx.imageSmoothingEnabled = true;
+}
+
+/** The region at a twelfth of its size, which is where the detail is lost. */
+function downsample(ctx: SKRSContext2D, from: Box, size: Box) {
+  const small = createCanvas(
+    Math.max(1, Math.floor(size.width / DETAIL_FACTOR)),
+    Math.max(1, Math.floor(size.height / DETAIL_FACTOR)),
+  );
+  small
+    .getContext('2d')
+    .drawImage(
+      ctx.canvas as never,
+      from.x,
+      from.y,
+      from.width,
+      from.height,
+      0,
+      0,
+      small.width,
+      small.height,
+    );
+  return small;
 }
 
 /**

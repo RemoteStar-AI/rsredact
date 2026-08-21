@@ -212,7 +212,7 @@ Add `patterns: [/.../ ]` and the regexes run before any model call. Add `visualO
 | `rsparseUrl` | none | An [rsparse](https://github.com/RemoteStar-AI/rsparse) instance, for document context |
 | `onProgress` | none | Per stage callback |
 
-`blur` and `pixelate` look like redaction but are not: blurred text can often be recovered. Both emit a warning in `audit.warnings` saying so. Use `box` for anything that leaves your control.
+`blur` and `pixelate` both throw the detail away by downsampling the region before they smooth or block it, so the characters cannot be read back out of the output. What does survive is the *shape* of what was covered: how many words, how long each one was, and where the lines broke. That is enough to tell a short name from a long one, so `box` is still the right choice when the output leaves your control. Both emit a warning in `audit.warnings` saying exactly that.
 
 ### What throws and what warns
 
@@ -229,7 +229,7 @@ The rule is that anything which would make the output untrustworthy throws, and 
 | The model returns an unreadable grid reference | warns, that one detection is dropped |
 | A model target was asked for with no provider | warns, except in `patterns-only` |
 | A page has no text layer and neither OCR nor vision ran | warns, and that page comes back unredacted |
-| `style` is `blur` or `pixelate` | warns that this is not real redaction |
+| `style` is `blur` or `pixelate` | warns that the shape of the text is still visible |
 
 All four error classes extend `RedactError` and carry a `code`.
 
