@@ -125,6 +125,14 @@ export interface RedactOptions {
   dpi?: number;
   /** Grid used by vision mode. */
   grid?: GridOptions;
+  /**
+   * How a detected region is covered. Default 'blur'.
+   *
+   * Every style destroys the text, because the page is rebuilt from pixels
+   * either way. They differ in what they still tell a reader about what was
+   * removed: 'blur' and 'pixelate' leave the shape of it visible, which is
+   * enough to tell a short name from a long one. 'box' leaves nothing.
+   */
   style?: RedactionStyle;
   /** Padding in pixels added around every detected box. Default 2. */
   padding?: number;
