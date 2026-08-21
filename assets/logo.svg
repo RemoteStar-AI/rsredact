@@ -4,8 +4,13 @@
   <!-- Same page and folded corner as rsparse: these are sibling services. -->
   <path d="M20 26a10 10 0 0 1 10-10h50l28 28v58a10 10 0 0 1-10 10H30a10 10 0 0 1-10-10Z" fill="#F4EFFF"/>
   <path d="M80 16l28 28H90a10 10 0 0 1-10-10Z" fill="#2E1065"/>
-  <!-- Three bars of ink, uneven, the way a real redaction falls across a line. -->
-  <rect x="34" y="56" width="60" height="12" rx="2" fill="#2E1065"/>
-  <rect x="34" y="76" width="38" height="12" rx="2" fill="#2E1065"/>
-  <rect x="34" y="96" width="52" height="12" rx="2" fill="#2E1065"/>
+  <!--
+    Two bars of ink, uneven, the way a real redaction falls across a line.
+    Both run past the page edge, because ink applied afterwards does not
+    respect the text block. Bars inset from both margins read as lines of
+    text instead, which is every document icon ever drawn. Every number is a
+    multiple of 8 so the edges land on whole pixels down to 16px.
+  -->
+  <rect x="20" y="56" width="88" height="24" fill="#2E1065"/>
+  <rect x="20" y="88" width="48" height="16" fill="#2E1065"/>
 </svg>
