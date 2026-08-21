@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 150" width="880" height="150" role="img" aria-label="Four detection layers, cheapest first: patterns, links, text model, vision">
+  <title>How rsredact finds things: four layers, cheapest first</title>
+  <rect x=".5" y=".5" width="879" height="149" rx="10" fill="#FFFFFF" stroke="#D0D7DE"/>
+  <line x1="20" y1="38" x2="860" y2="38" stroke="#E9EDF0" stroke-width="1"/>
+  <circle cx="24" cy="38" r="4" fill="#6D28D9"/>
+  <text x="36" y="42" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6D28D9">1</text>
+  <text x="20" y="72" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#1F2328">patterns</text>
+  <text x="20" y="91" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#656D76">email · phone · url</text>
+  <circle cx="237" cy="38" r="4" fill="#6D28D9"/>
+  <text x="249" y="42" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6D28D9">2</text>
+  <text x="233" y="72" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#1F2328">links</text>
+  <text x="233" y="91" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#656D76">annotation rects</text>
+  <circle cx="450" cy="38" r="4" fill="#6D28D9"/>
+  <text x="462" y="42" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6D28D9">3</text>
+  <text x="446" y="72" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#1F2328">text model</text>
+  <text x="446" y="91" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#656D76">name · employer · address</text>
+  <circle cx="663" cy="38" r="4" fill="#6D28D9"/>
+  <text x="675" y="42" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#6D28D9">4</text>
+  <text x="659" y="72" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif" font-size="13.5" font-weight="600" fill="#1F2328">vision</text>
+  <text x="659" y="91" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#656D76">photo · signature · scans</text>
+  <line x1="20" y1="112" x2="432" y2="112" stroke="#E9EDF0" stroke-width="1"/>
+  <line x1="446" y1="112" x2="860" y2="112" stroke="#E9EDF0" stroke-width="1"/>
+  <text x="20" y="129" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#656D76">no model call, no API key</text>
+  <text x="446" y="129" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="11" fill="#656D76">one model call per page</text>
+</svg>

@@ -8,11 +8,19 @@ It exists because drawing a black rectangle on a PDF redacts nothing. The text s
 
 [![ci](https://github.com/RemoteStar-AI/rsredact/actions/workflows/ci.yml/badge.svg)](https://github.com/RemoteStar-AI/rsredact/actions/workflows/ci.yml)
 
+<img src="assets/redaction-example.png" width="852" alt="One CV before and after redaction. The name, email, phone number, and a URL written in the body are painted out. The job title, the dates, and the achievement lines are untouched.">
+
+The name, the contact block, and the URL written into the body are gone. The job title, the dates, and what the candidate actually did are untouched, which is the whole point. The word "Portfolio" is still readable, but the link under it no longer goes anywhere.
+
+What it does not do is make a CV anonymous. Blacking out the name and the contact block is the easy half. A distinctive project, an award, or a line like "cut the $10000 AWS Glue bill by 96%" is one search away from a name, and no target matches any of those. Read [Limitations](#limitations) before you decide this is enough.
+
 ## Quick start
 
 ```
 npm install @remotestar/rsredact openai
 ```
+
+Needs Node 20 or newer. `@napi-rs/canvas` does the rasterizing and is a native dependency, shipped as prebuilt binaries per platform, which is worth knowing before you put this in a Lambda or an Alpine image.
 
 ```ts
 import { readFile, writeFile } from 'node:fs/promises';
@@ -24,7 +32,7 @@ const result = await redact(await readFile('cv.pdf'), {
   provider: openaiProvider(),
 });
 
-await writeFile('cv.redacted.pdf', result.pdf);
+await writeFile('cv.redacted.pdf', result.pdf!);
 console.log(result.detections);  // every box, with what it was and where it came from
 console.log(result.audit);       // targets, provider, llmCalls, warnings, durationMs
 ```
@@ -41,7 +49,63 @@ Three things, because each one is a way redaction usually fails.
 
 **The metadata is cleared.** A CV PDF very often carries the candidate's name in its Author field and their filename in Title. Both are emptied.
 
-What that costs you: the output is raster, so it is larger than the input (409 KB against 109 KB on a one page resume) and no longer searchable. That is the trade, and it is not negotiable if the goal is that nobody can recover the name.
+What that costs you: the output is raster, so it is three to four times the size of the input at the default 150 dpi (122 KB in, 457 KB out on a one page resume, and it scales with dpi) and no longer searchable. That is the trade, and it is not negotiable if the goal is that nobody can recover the name.
+
+## Checking the output
+
+Those three claims take about ten seconds to check, so check them rather than trust them.
+
+Start with the run's own record.
+
+```ts
+console.log(result.audit.detectionCounts);  // { name: 1, email: 1, phone: 1, 'social+url': 1 }
+console.log(result.audit.warnings);         // []
+```
+
+An empty `warnings` is not a clean bill of health by itself. In `patterns-only` mode, and in `text` mode when the only targets left are visual ones, every model target is skipped in silence and `warnings` stays empty. So read `detectionCounts` against the targets you actually asked for: a target you requested that is missing from the counts either found nothing or never ran, and those two look identical from here.
+
+`social+url` is not a typo. Two detectors landing on the same box merge into one detection carrying both names, so filter with `includes`, not `===`.
+
+Then look at the file itself. No fonts means no text, and one byte out of `pdftotext` is the trailing newline:
+
+```
+$ pdffonts cv.redacted.pdf
+name                                 type              encoding         emb sub uni object ID
+------------------------------------ ----------------- ---------------- --- --- --- ---------
+
+$ pdftotext cv.redacted.pdf - | wc -c
+       1
+
+$ pdfinfo cv.redacted.pdf | head -4
+Title:
+Subject:
+Keywords:
+Author:
+```
+
+For text and links in one go, ask pdf.js, which rsredact already depends on:
+
+```js
+import { readFile } from 'node:fs/promises';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+
+const data = new Uint8Array(await readFile('cv.redacted.pdf'));
+const page = await (await getDocument({ data }).promise).getPage(1);
+(await page.getTextContent()).items.length;  // 0
+(await page.getAnnotations()).length;        // 0
+```
+
+Both numbers should be 0 on every page. For reference, the test fixture goes from 21 text items and 2 links to 0 and 0. A real one page resume carrying 21 hyperlinks goes from 379 text items and 21 links to 0 and 0.
+
+If you want to see what the input was leaking through its link layer, which is the part no text extractor shows you, read the annotations before you redact:
+
+```js
+const urls = (await page.getAnnotations()).map((a) => a.url).filter(Boolean);
+```
+
+On that resume this printed 21 URLs, including a LinkedIn profile slug, a personal blog, a GitHub handle, four credential badge URLs that resolve to the candidate's full name, and a `mailto:` of the address already in the header.
+
+Compared with the alternatives: `pdf-redact-tools` rasterizes the whole document and detects nothing, so you keep every identifier. PyMuPDF's `apply_redactions` does genuinely destroy text, but you supply every rectangle yourself and it is AGPL, which decides it for a lot of commercial callers. Drawing a rectangle with a PDF library, which is the usual in-house approach, is the failure the top of this file is about. What rsredact adds is detection joined to a destructive rebuild, plus reading the annotation layer that none of them look at.
 
 ## Dead links and hidden links are different things
 
@@ -56,8 +120,10 @@ The reason is that hiding link text mostly destroys information for no privacy g
 | `linkText` | Link is dead | Link text readable | Use when |
 |---|---|---|---|
 | `keep` (default) | yes | yes | Normal blind hiring. Employer names, certifications, and project titles stay readable. |
-| `redact-identifying` | yes | hidden when its destination matches a requested target, readable otherwise | You want a link reading `github.com/someone` gone but an employer's site left alone. |
+| `redact-identifying` | yes | hidden when its destination matches a requested **pattern** target, readable otherwise | You want a link reading `github.com/someone` gone. Read the caveat below first. |
 | `redact-all` | yes | no | The output must show no trace that a link was ever there. |
+
+`redact-identifying` is blunter than it sounds, and worth understanding before you switch it on. It matches the destination against the regexes of the targets you asked for, so only `social`, `url`, `email`, `phone`, and `dob` can ever trigger it. Ask for `redact-identifying` with a model-only target set like `['name', 'photo']` and it does nothing at all. And because the match is on the URL host rather than on any judgement about whose page it is, an employer whose name links to its LinkedIn company page loses that name, while one that links to its own domain keeps it. On the resume we tested, "Embeddings Co" and "Aspora (Vance)" were hidden because both link to `linkedin.com/company/...`, and "CloudSEK" survived because it links to `cloudsek.com`.
 
 Separately from all of this, a URL written out as **visible text** is identifying content in its own right, because a reader can simply type it. That is handled by the `url` target (any URL) and the `social` target (known profile hosts), not by `linkText`. Ask for `url` and `github.com/someone` written in the body gets redacted whether or not anything linked to it.
 
@@ -65,25 +131,59 @@ Separately from all of this, a URL written out as **visible text** is identifyin
 
 Pass the ones you want. Strings resolve against the built-in list:
 
-| Target | What it covers |
-|---|---|
-| `name` | The candidate's own name, wherever it appears |
-| `email` | Email addresses |
-| `phone` | Telephone and mobile numbers, with their labels |
-| `address` | Postal or residential address, not employer locations |
-| `social` | LinkedIn, GitHub, X, portfolios, link aggregators |
-| `url` | Any URL |
-| `photo` | A photograph of the candidate, not logos or charts |
-| `signature` | A handwritten signature |
-| `dob` | Date of birth or age |
-| `nationality` | Nationality, citizenship, visa status |
-| `gender` | Gender, sex, or pronouns |
-| `marital_status` | Marital status, spouse, dependents |
-| `employer` | Company names, keeping titles and dates |
-| `school` | Institution names, keeping degrees and dates |
-| `reference` | Referees and their contact details |
+| Target | What it covers | Found by |
+|---|---|---|
+| `name` | The candidate's own name, wherever it appears | model |
+| `email` | Email addresses | regex |
+| `phone` | Telephone and mobile numbers. A `Mobile:` label stays put | regex |
+| `address` | Postal or residential address, not employer locations | model |
+| `social` | LinkedIn, GitHub, X, portfolios, link aggregators | regex |
+| `url` | Any URL | regex |
+| `photo` | A photograph of the candidate, not logos or charts | vision |
+| `signature` | A handwritten signature | vision |
+| `dob` | Date of birth or age | regex |
+| `nationality` | Nationality, citizenship, visa status | model |
+| `gender` | Gender, sex, or pronouns | model |
+| `marital_status` | Marital status, spouse, dependents | model |
+| `employer` | Company names, keeping titles and dates | model |
+| `school` | Institution names, keeping degrees and dates | model |
+| `reference` | Referees and their contact details | model |
 
-`photo` and `signature` are visual: only a model looking at the page can find them.
+"Found by" is what a target needs in order to match anything:
+
+- **regex** works with no provider and no API key. These targets are also shown to the model when you pass one, which catches the shapes a regex misses.
+- **model** means there is no pattern to match on, so the target only does something when a `provider` is set. Without one it finds nothing. In `auto`, `text`, and `vision` mode you get a warning; in `patterns-only` you get silence.
+- **vision** means the page is looked at rather than read. You cannot OCR a face.
+
+### Choosing targets
+
+The set in the quick start is the contact block and the headshot. It is the right starting point and it is not the whole job, so pick deliberately.
+
+```ts
+// Contact details. Mostly regex, works without a provider.
+'email', 'phone', 'social', 'url'
+
+// The name itself, and the attributes people discriminate on.
+'name', 'photo', 'signature', 'address',
+'dob', 'nationality', 'gender', 'marital_status', 'reference'
+
+// Where they worked and studied. The strongest bias signal, and the
+// most expensive in lost context. Opt in when you want it.
+'employer', 'school'
+```
+
+Leaving `employer` and `school` out is a real choice, not an oversight: a reviewer who cannot see where somebody worked also cannot judge the work. Turning them on reduces prestige bias and costs the reviewer that signal. What neither setting buys you is anonymity, for reasons in [Limitations](#limitations).
+
+If you ask for a `model` target and pass no provider, the run still succeeds and records what it skipped:
+
+```
+page 1: no provider was passed, so only pattern and link detection ran.
+Targets that need judgement (name, address, employer) were not found.
+```
+
+That string lands in `result.audit.warnings`. Two things about it. The names in the brackets are a fixed example rather than a list of what your run skipped, so compare `audit.detectionCounts` against what you asked for. And it is only emitted in `auto`, `text`, and `vision` mode, because `patterns-only` skips every model target by design and says nothing about it.
+
+Read it either way, because a redaction that quietly did less than you asked looks exactly like one that worked.
 
 Define your own by passing an object instead of a string. The description is the whole instruction, so be specific:
 
@@ -105,17 +205,37 @@ Add `patterns: [/.../ ]` and the regexes run before any model call. Add `visualO
 | `dpi` | `150` | Render resolution |
 | `padding` | `2` | Pixels added around every box |
 | `minConfidence` | `0.5` | Drop detections below this |
-| `grid` | `24x36` | Grid size for vision mode |
+| `grid` | `{ cols: 24, rows: 36, opacity: 0.35, snapToWords: true }` | Reference grid for vision mode |
 | `ocr` | `true` | OCR pages with no text layer, needs `tesseract.js` |
+| `ocrLanguage` | `eng` | Tesseract language code |
 | `output` | `pdf` | `pdf`, `images`, `both` |
 | `rsparseUrl` | none | An [rsparse](https://github.com/RemoteStar-AI/rsparse) instance, for document context |
 | `onProgress` | none | Per stage callback |
 
 `blur` and `pixelate` look like redaction but are not: blurred text can often be recovered. Both emit a warning in `audit.warnings` saying so. Use `box` for anything that leaves your control.
 
+### What throws and what warns
+
+The rule is that anything which would make the output untrustworthy throws, and anything that cost you one box warns. Worth knowing before you write a batch loop, because a throw means there is no PDF at all.
+
+| Situation | What happens |
+|---|---|
+| Input is not a PDF, PNG, JPEG, or WebP | throws `UnsupportedInputError` |
+| A target id does not exist | throws, before anything is read |
+| `openai`, `@anthropic-ai/sdk`, or `tesseract.js` is needed and not installed | throws `MissingDependencyError`, carrying the install command |
+| The provider errors, refuses, or has no API key | throws `ProviderError`, and no PDF comes back |
+| A vision target is asked of a provider that cannot see | throws `ProviderError` |
+| The model quotes text that is not on the page | warns, that one detection is dropped |
+| The model returns an unreadable grid reference | warns, that one detection is dropped |
+| A model target was asked for with no provider | warns, except in `patterns-only` |
+| A page has no text layer and neither OCR nor vision ran | warns, and that page comes back unredacted |
+| `style` is `blur` or `pixelate` | warns that this is not real redaction |
+
+All four error classes extend `RedactError` and carry a `code`.
+
 ## Providers
 
-A provider is transport plus "give me back parsed JSON". rsredact owns all the prompting, so a new backend is about forty lines.
+A provider is transport plus "give me back parsed JSON". rsredact owns all the prompting, so a new backend is about a hundred lines, or thirteen if you are wrapping your own gateway with `customProvider`.
 
 ```ts
 import { openaiProvider, anthropicProvider, customProvider } from '@remotestar/rsredact/providers';
@@ -139,6 +259,8 @@ There is also `scriptedProvider([...])`, which replays canned responses. It is h
 ## How it finds things
 
 Four layers, cheapest first. Each one only handles what the layer below cannot.
+
+<img src="assets/pipeline.svg" width="880" alt="Four detection layers, cheapest first. Patterns cover email, phone, and url. Links cover annotation rects. Neither needs a model call. The text model covers name, employer, and address, and vision covers photo, signature, and scans, one model call per page each.">
 
 **Coordinates come from the document, never from the model.** A text PDF already carries exact glyph boxes, so those are read directly. A scanned page goes through OCR instead, which gives word boxes.
 
@@ -176,25 +298,39 @@ Most of that is rasterizing the page, so it scales with dpi and page count rathe
 
 With a model in the loop, expect the model to dominate. A full run on the same file with `gpt-4.1` and targets `name, email, phone, social, address, photo` takes about 4.6 s and makes 2 calls, one for text and one for the photo.
 
+Calls scale with pages, not with findings. Every page gets one text call, and every page gets a vision call too if any visual target is requested, whether or not that page has a photo on it. So a three page CV with `photo` in the targets is six calls, not two. Page text is chunked at 12,000 characters, which one CV page never reaches. Images go up at OpenAI's `high` detail by default, which is the expensive setting: pass `openaiProvider({ imageDetail: 'low' })` if you are running at volume and can accept coarser boxes.
+
 ## Limitations
 
 **DOCX and other office formats are rejected.** Their text reflows, so it has no fixed coordinates to redact. Convert to PDF first. rsparse will tell you what a document says, but not where on a page it says it.
 
 **OCR is optional and untested in CI.** `tesseract.js` is a peer dependency, loaded only for pages with no text layer. If it is not installed, those pages fall through to vision detection and a warning is recorded rather than the run failing.
 
+**A page with no text layer needs either `tesseract.js` or a vision provider.** With neither, that page comes back rendered and completely unredacted, and the only clue is a warning about tesseract. This is the quietest way to get a useless result out of this library. Check `audit.textSources` for `none` if you accept scans.
+
 **Word boxes on text PDFs are measured, not exact.** pdf.js reports the width of a whole text run but not where each character sits inside it, so characters are placed using measured advance widths from a proxy font of the same class, scaled to the run's real width. The error is a fraction of a character, which the default 2 px padding covers. Splitting the width evenly instead, which is the obvious approach, drifts by a full character by mid-line and leaves the first letter of an email address showing.
 
-**Employer and school redaction is coarse.** Both are aggressive by nature: enough context usually survives elsewhere in the CV that a determined reader can guess. Treat them as reducing bias, not as anonymity.
+**Redacting the identifiers is not the same as anonymising the CV.** This is the limitation to take seriously, and no setting fixes it. Names, emails, and employers are the easy part, because they are identifiers and they look like identifiers. What actually re-identifies a candidate is the detail nobody files under personal information: a Google Summer of Code project, a conference talk, an open source contribution, a line reading "cut the $10000 AWS Glue bill by 96%". Every one of those is a single web search away from a name, and no target matches any of them.
+
+We tested this on a real resume. The contact block went, 21 hyperlinks died, and the remaining text still pointed at exactly one person. `employer` and `school` help, because they remove the prestige signal a reviewer reacts to first, but they are coarse and plenty of context survives them. Treat the output as bias-reduced rather than anonymous. If you need anonymity, a person has to read the result and judge whether what is left is too specific.
 
 ## Development
 
 ```
 npm install
-npm test        # builds, then runs the suite against dist
+npm test        # compiles to dist-test, then runs the suite against that
 npm run typecheck
 ```
 
 The tests generate their own fixture CV, including a hyperlink whose anchor text hides the URL, and assert on both the detections and the pixels. No network and no API key needed.
+
+`examples/redact.ts` redacts one file and writes the result next to it, which is the fastest way to try this on your own CV:
+
+```
+OPENAI_API_KEY=... npx tsx examples/redact.ts cv.pdf
+```
+
+Drop the key and only pattern and link detection runs, which still removes emails, phone numbers, and every link. The example is not in the published package, so run it from a clone.
 
 ## License
 

@@ -8,7 +8,7 @@
     "cv",
     "pdf",
     "pii",
-    "anonymisation",
+    "pseudonymisation",
     "blind-hiring",
     "gdpr"
   ],
@@ -34,7 +34,7 @@
   },
   "files": [
     "dist",
-    "assets/logo.svg",
+    "assets",
     "README.md",
     "LICENSE"
   ],
