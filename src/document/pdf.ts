@@ -1,4 +1,9 @@
-import { getDocument, Util, type PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import {
+  GlobalWorkerOptions,
+  getDocument,
+  Util,
+  type PDFPageProxy,
+} from 'pdfjs-dist/legacy/build/pdf.mjs';
 import type { TextItem } from 'pdfjs-dist/types/src/display/api.js';
 import type { Box, Page, PageLink, Word } from '../types.js';
 import { createRequire } from 'node:module';
@@ -17,6 +22,17 @@ const require_ = createRequire(import.meta.url);
 const PDFJS_ROOT = require_.resolve('pdfjs-dist/package.json').replace(/package\.json$/, '');
 const STANDARD_FONTS = `${PDFJS_ROOT}standard_fonts/`;
 const CMAPS = `${PDFJS_ROOT}cmaps/`;
+
+/**
+ * Under Node, pdf.js runs the worker in-process and reaches it with a dynamic
+ * `import()` of a path it works out for itself. That path is invisible to a
+ * bundler or a file tracer, so in a serverless build the worker is left out of
+ * the deployment and the first `getDocument` fails with "Setting up fake worker
+ * failed". Resolving it here with `require.resolve` and a literal specifier
+ * makes the dependency statically analysable, so the file gets traced and
+ * shipped like any other.
+ */
+GlobalWorkerOptions.workerSrc = require_.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
 
 export interface RenderedPdf {
   pages: Page[];
