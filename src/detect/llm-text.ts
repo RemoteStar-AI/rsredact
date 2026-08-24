@@ -43,7 +43,12 @@ export async function detectWithText(
   let calls = 0;
 
   for (const chunk of chunkLines(lines)) {
-    const transcript = chunk.map((line) => `${line.number}| ${line.text}`).join('\n');
+    // The page is pasted into the prompt inside a <page_text> fence. A CV that
+    // contains the closing tag could otherwise end the fence early and have the
+    // rest of its text read as instruction, so the tags are neutralised here.
+    const transcript = chunk
+      .map((line) => `${line.number}| ${defuse(line.text)}`)
+      .join('\n');
     const base = textPrompt(textTargets, transcript, linkSection);
     const prompt = documentContext
       ? `${base}\n\nFor context, here is the whole document as text. Use it to recognise identifiers, but only return quotes from the page above.\n${documentContext}`
@@ -55,7 +60,7 @@ export async function detectWithText(
         system: TEXT_SYSTEM,
         prompt,
         schema: TEXT_SCHEMA as never,
-        maxTokens: 4096,
+        maxTokens: 8192,
       });
       calls++;
     } catch (error) {
@@ -154,6 +159,11 @@ function chunkLines(lines: LineText[]): LineText[][] {
   }
   if (current.length > 0) chunks.push(current);
   return chunks;
+}
+
+/** Stops a document from closing the fence it is quoted inside. */
+function defuse(text: string): string {
+  return text.replace(/<\/?page_text>/gi, (match) => match.replace(/</g, '\u2039'));
 }
 
 function clamp(value: number): number {
