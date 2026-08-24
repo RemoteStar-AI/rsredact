@@ -5,3 +5,4 @@ dist/
 .env.*
 tmp/
 dist-test/
+.gstack/
