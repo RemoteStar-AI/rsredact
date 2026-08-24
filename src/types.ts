@@ -111,6 +111,12 @@ export interface Detection {
 export type RedactionStyle = 'box' | 'label' | 'blur' | 'pixelate';
 
 export interface RedactOptions {
+  /**
+   * Refuse a document with more pages than this before any of it is rasterised.
+   * Rendering is the expensive step, so the caller's page limit belongs here rather
+   * than in a check after the fact.
+   */
+  maxPages?: number;
   targets: TargetInput[];
   /** Omit to run pattern-only detection. */
   provider?: LLMProvider;

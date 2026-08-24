@@ -32,7 +32,7 @@ export async function loadDocument(
   let pointSizes: { width: number; height: number }[] | undefined;
 
   if (kind === 'pdf') {
-    const rendered = await loadPdf(data, dpi);
+    const rendered = await loadPdf(data, dpi, { maxPages: options.maxPages });
     pages = rendered.pages;
     pointSizes = rendered.pointSizes;
   } else {

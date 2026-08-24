@@ -39,7 +39,25 @@ export interface RenderedPdf {
   pointSizes: { width: number; height: number }[];
 }
 
-export async function loadPdf(data: Buffer, dpi: number): Promise<RenderedPdf> {
+/**
+ * Rasterising is where the memory goes, so the size of the job is settled before
+ * the first page is painted. A few hundred bytes of PDF can declare a 10000pt
+ * square page, which is 20833px a side at 150 dpi and gigabytes of canvas. Page
+ * count and total pixels are both knowable from the viewports up front, so refuse
+ * there rather than after the damage is done.
+ */
+export const MAX_PAGE_PIXELS = 40_000_000;
+export const MAX_DOCUMENT_PIXELS = 200_000_000;
+
+function tooBig(message: string): Error {
+  return Object.assign(new Error(message), { code: 'UNSUPPORTED_INPUT' });
+}
+
+export async function loadPdf(
+  data: Buffer,
+  dpi: number,
+  limits: { maxPages?: number } = {},
+): Promise<RenderedPdf> {
   const scale = dpi / PDF_POINTS_PER_INCH;
   const doc = await getDocument({
     // pdf.js mutates the buffer it is given, so hand it a copy.
@@ -56,6 +74,29 @@ export async function loadPdf(data: Buffer, dpi: number): Promise<RenderedPdf> {
     cMapUrl: CMAPS,
     cMapPacked: true,
   }).promise;
+
+  if (limits.maxPages && doc.numPages > limits.maxPages) {
+    throw tooBig(`That document has ${doc.numPages} pages, and the limit is ${limits.maxPages}.`);
+  }
+
+  let planned = 0;
+  for (let i = 1; i <= doc.numPages; i++) {
+    const viewport = (await doc.getPage(i)).getViewport({ scale });
+    const pixels = viewport.width * viewport.height;
+    if (pixels > MAX_PAGE_PIXELS) {
+      throw tooBig(
+        `Page ${i} would rasterise to ${Math.round(pixels / 1e6)} megapixels at ${dpi} dpi, over ` +
+          `the ${Math.round(MAX_PAGE_PIXELS / 1e6)} megapixel limit for a single page.`,
+      );
+    }
+    planned += pixels;
+  }
+  if (planned > MAX_DOCUMENT_PIXELS) {
+    throw tooBig(
+      `This document would rasterise to ${Math.round(planned / 1e6)} megapixels at ${dpi} dpi, ` +
+        `over the ${Math.round(MAX_DOCUMENT_PIXELS / 1e6)} megapixel limit.`,
+    );
+  }
 
   const factory = new NapiCanvasFactory();
   const pages: Page[] = [];
